@@ -1,6 +1,11 @@
-# terraform-swat-aws-dr
+# terraform-active-passive-dr-infrastructurer
 
 Production-grade Terraform IaC for a multi-region active-passive Disaster Recovery architecture on AWS — built for a financial-grade microservices application.
+
+<img width="2461" height="1491" alt="AWSINFRA drawio" src="https://github.com/user-attachments/assets/9ce82c64-20aa-4cb4-9207-1a0828e5c979" />
+
+
+
 
 | | |
 |---|---|
