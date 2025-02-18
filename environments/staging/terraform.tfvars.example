@@ -1,40 +1,34 @@
-project     = "swat"
+project     = "myproject"
 environment = "staging"
 region      = "ap-south-1"
 
 # -----------------------------------------------------------------------
 # RESOURCE CREATION FLAGS
 # -----------------------------------------------------------------------
-# Staging: all modules enabled by default. Set flags to false to save costs
-# during off-hours or when testing a specific tier in isolation.
-# -----------------------------------------------------------------------
 create = {
-  // Tier 1 — Foundation
   iam        = true
   networking = true
   s3         = true
 
-  // Tier 2 — Connectivity
   security_groups = true
 
-  // Tier 3 — Platform
   vpc_endpoints = true
   acm           = true
   eks           = true
   elasticache   = true
   efs           = true
 
-  // Tier 4 — Compute
   devops_ec2    = true
   load_balancer = true
 
-  // Tier 5 — Edge
   cloudfront = true
 
-  // Tier 6 — Operations
   observability = true
 }
 
+# -----------------------------------------------------------------------
+# Networking (2 AZs — cost-optimised vs prod's 3)
+# -----------------------------------------------------------------------
 vpc_cidr           = "10.2.0.0/16"
 availability_zones = ["ap-south-1a", "ap-south-1b"]
 
@@ -42,19 +36,28 @@ public_subnet_cidrs      = ["10.2.1.0/24", "10.2.2.0/24"]
 private_app_subnet_cidrs = ["10.2.11.0/24", "10.2.12.0/24"]
 private_db_subnet_cidrs  = ["10.2.21.0/24", "10.2.22.0/24"]
 
+# -----------------------------------------------------------------------
+# DNS / ACM
+# -----------------------------------------------------------------------
 hosted_zone_name          = "example.com"
 domain_name               = "staging.example.com"
 subject_alternative_names = []
 
-# Set via TF_VAR_route53_zone_id
-route53_zone_id = ""
+# Obtain via: aws route53 list-hosted-zones-by-name --dns-name example.com
+route53_zone_id = "Z1234567890ABCDEFGHIJ"
 
-github_org  = "akashyadavdevops"
-github_repo = "terraform-swat-aws-dr"
+# -----------------------------------------------------------------------
+# IAM / GitHub OIDC
+# -----------------------------------------------------------------------
+github_org  = "your-github-org"
+github_repo = "your-repo-name"
 
-terraform_state_bucket = "terformstatefile2026-077154311968-ap-south-1-an"
+terraform_state_bucket = "your-tf-state-bucket-name"
 terraform_lock_table   = "terraform-state-lock"
 
+# -----------------------------------------------------------------------
+# EKS — SPOT instances for cost saving
+# -----------------------------------------------------------------------
 kubernetes_version = "1.32"
 
 eks_node_groups = {
@@ -78,6 +81,9 @@ eks_addon_versions = {
   efs_csi    = "v2.1.6-eksbuild.1"
 }
 
+# -----------------------------------------------------------------------
+# Load Balancer
+# -----------------------------------------------------------------------
 alb_target_groups = {
   api = {
     port              = 8080
@@ -93,4 +99,12 @@ alb_listener_rules = {
   }
 }
 
+# -----------------------------------------------------------------------
+# Observability
+# -----------------------------------------------------------------------
 alarm_email_endpoints = []
+
+# -----------------------------------------------------------------------
+# Sensitive — set via environment variables
+# -----------------------------------------------------------------------
+# export TF_VAR_cloudfront_origin_verify_secret="$(openssl rand -hex 32)"
