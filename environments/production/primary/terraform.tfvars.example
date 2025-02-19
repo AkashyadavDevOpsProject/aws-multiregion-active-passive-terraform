@@ -1,4 +1,4 @@
-project     = "swat"
+project     = "myproject"
 environment = "prod"
 region      = "ap-south-1"
 dr_region   = "ap-south-2"
@@ -6,23 +6,16 @@ dr_region   = "ap-south-2"
 # -----------------------------------------------------------------------
 # RESOURCE CREATION FLAGS
 # -----------------------------------------------------------------------
-# Set any flag to false to skip that module on the next apply.
-# Dependency tiers must be respected — validation blocks enforce this at plan time.
-# See flags.tf for full tier documentation and dependency rules.
-# -----------------------------------------------------------------------
 create = {
-  // Tier 1 — Foundation (no dependencies)
   iam           = true
   networking    = true
   networking_dr = true
   s3            = true
 
-  // Tier 2 — Connectivity (requires Tier 1)
   transit_gateway    = true
   security_groups    = true
   security_groups_dr = true
 
-  // Tier 3 — Platform (requires Tier 2)
   vpc_endpoints = true
   acm           = true
   eks           = true
@@ -31,15 +24,12 @@ create = {
   amazon_mq     = true
   efs           = true
 
-  // Tier 4 — Compute (requires Tier 3)
   devops_ec2    = true
   load_balancer = true
 
-  // Tier 5 — Edge (requires Tier 4)
   cloudfront = true
   route53    = true
 
-  // Tier 6 — Operations (requires Tier 3-5)
   observability = true
   backup        = true
 }
@@ -67,19 +57,22 @@ dr_private_db_subnet_cidrs  = ["10.1.21.0/24", "10.1.22.0/24", "10.1.23.0/24"]
 # -----------------------------------------------------------------------
 # DNS / ACM
 # -----------------------------------------------------------------------
-hosted_zone_name          = "example.com"
-domain_name               = "app.example.com"
+hosted_zone_name          = "example.com"                  # your domain in Route 53
+domain_name               = "app.example.com"              # app subdomain
 subject_alternative_names = ["*.example.com"]
 
-# Obtain via: aws route53 list-hosted-zones-by-name --dns-name example.com --query 'HostedZones[0].Id'
-# Format: Z1234567890ABC (strip the /hostedzone/ prefix)
-route53_zone_id = ""
+# Obtain via: aws route53 list-hosted-zones-by-name --dns-name example.com
+# Strip the /hostedzone/ prefix from the result
+route53_zone_id = "Z1234567890ABCDEFGHIJ"
 
 # -----------------------------------------------------------------------
-# IAM / GitHub
+# IAM / GitHub OIDC
 # -----------------------------------------------------------------------
-github_org  = "akashyadavdevops"
-github_repo = "terraform-swat-aws-dr"
+github_org  = "your-github-org"
+github_repo = "your-repo-name"
+
+terraform_state_bucket = "your-tf-state-bucket-name"
+terraform_lock_table   = "terraform-state-lock"
 
 # -----------------------------------------------------------------------
 # EKS
@@ -125,7 +118,7 @@ devops_ec2_instance_type = "t3.medium"
 # -----------------------------------------------------------------------
 # Aurora
 # -----------------------------------------------------------------------
-aurora_database_name          = "swatdb"
+aurora_database_name          = "appdb"
 aurora_engine_version         = "16.2"
 aurora_primary_instance_count = 2
 aurora_primary_instance_class = "db.r6g.large"
@@ -142,7 +135,8 @@ redis_num_nodes = 2
 # -----------------------------------------------------------------------
 # Amazon MQ
 # -----------------------------------------------------------------------
-mq_admin_secret_id = "swat/prod/amazon-mq/admin"
+# Create the secret first: aws secretsmanager create-secret --name myproject/prod/amazon-mq/admin
+mq_admin_secret_id = "myproject/prod/amazon-mq/admin"
 
 # -----------------------------------------------------------------------
 # EFS Access Points
@@ -177,11 +171,11 @@ alb_listener_rules = {
 # -----------------------------------------------------------------------
 # Observability
 # -----------------------------------------------------------------------
-alarm_email_endpoints = ["devops@example.com"]
+alarm_email_endpoints = ["your-email@example.com"]
 
 # -----------------------------------------------------------------------
-# Sensitive variables — set via TF_VAR_* environment variables, NOT here
-# cloudfront_origin_verify_secret = set via TF_VAR_cloudfront_origin_verify_secret
-# dr_nlb_dns_name                 = set after DR environment is applied
-# dr_cloudfront_domain_name       = set after DR environment is applied
+# Sensitive variables — set via environment variables, never commit values
 # -----------------------------------------------------------------------
+# export TF_VAR_cloudfront_origin_verify_secret="$(openssl rand -hex 32)"
+# export TF_VAR_dr_nlb_dns_name="<from DR environment output>"
+# export TF_VAR_dr_cloudfront_domain_name="<from DR environment output>"

@@ -118,7 +118,7 @@ variable "terraform_lock_table" {
 # -----------------------------------------------------------------------
 variable "kubernetes_version" {
   type    = string
-  default = "1.34"
+  default = "1.32"
 }
 
 variable "eks_node_groups" {
