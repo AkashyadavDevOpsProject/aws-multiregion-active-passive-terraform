@@ -16,7 +16,7 @@ terraform {
 # Providers — DR environment targets ap-south-2 as default region
 # -----------------------------------------------------------------------
 provider "aws" {
-  profile = "personal"
+  profile = "devops-admin"
   region  = var.region
 
   default_tags {
@@ -26,7 +26,7 @@ provider "aws" {
 
 provider "aws" {
   alias   = "us_east_1"
-  profile = "personal"
+  profile = "devops-admin"
   region  = "us-east-1"
 
   default_tags {

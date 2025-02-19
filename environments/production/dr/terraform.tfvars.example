@@ -1,36 +1,27 @@
-project     = "swat"
+project     = "myproject"
 environment = "prod-dr"
 region      = "ap-south-2"
 
 # -----------------------------------------------------------------------
 # RESOURCE CREATION FLAGS
 # -----------------------------------------------------------------------
-# IAM roles and Aurora DR cluster are managed by the primary environment.
-# Flip flags to false for cost reduction during low-traffic periods.
-# -----------------------------------------------------------------------
 create = {
-  // Tier 1 — Foundation
   networking = true
   s3         = true
 
-  // Tier 2 — Connectivity
   security_groups = true
 
-  // Tier 3 — Platform
   vpc_endpoints = true
   acm           = true
   eks           = true
   elasticache   = true
   efs           = true
 
-  // Tier 4 — Compute
   devops_ec2    = true
   load_balancer = true
 
-  // Tier 5 — Edge
   cloudfront = true
 
-  // Tier 6 — Operations
   observability = true
 }
 
@@ -47,22 +38,22 @@ private_db_subnet_cidrs  = ["10.1.21.0/24", "10.1.22.0/24", "10.1.23.0/24"]
 # -----------------------------------------------------------------------
 # DNS
 # -----------------------------------------------------------------------
-hosted_zone_name = "example.com"
-domain_name      = "app.example.com"
+hosted_zone_name          = "example.com"
+domain_name               = "app.example.com"
+subject_alternative_names = ["*.example.com"]
 
 # Obtain from primary environment after first apply:
 #   terraform -chdir=environments/production/primary output route53_zone_id
-# Set via TF_VAR_route53_zone_id
-route53_zone_id = ""
+route53_zone_id = "Z1234567890ABCDEFGHIJ"
 
 # -----------------------------------------------------------------------
 # IAM — obtain from primary environment after first apply:
 #   terraform -chdir=environments/production/primary output
 # -----------------------------------------------------------------------
-eks_cluster_role_arn             = ""
-eks_node_group_role_arn          = ""
-devops_ec2_instance_profile_name = ""
-s3_replication_role_arn          = ""
+eks_cluster_role_arn             = "arn:aws:iam::123456789012:role/myproject-prod-eks-cluster-role"
+eks_node_group_role_arn          = "arn:aws:iam::123456789012:role/myproject-prod-eks-node-group-role"
+devops_ec2_instance_profile_name = "myproject-prod-devops-ec2-profile"
+s3_replication_role_arn          = "arn:aws:iam::123456789012:role/myproject-prod-s3-replication-role"
 
 # -----------------------------------------------------------------------
 # EKS — DR: reduced capacity warm standby
@@ -91,7 +82,7 @@ eks_addon_versions = {
 }
 
 # -----------------------------------------------------------------------
-# Compute — DR: smaller sizes for warm standby cost reduction
+# Compute — smaller sizes for warm standby cost reduction
 # -----------------------------------------------------------------------
 devops_ec2_instance_type = "t3.small"
 redis_node_type          = "cache.r6g.medium"
@@ -127,9 +118,9 @@ alb_listener_rules = {
 # -----------------------------------------------------------------------
 # Observability
 # -----------------------------------------------------------------------
-alarm_email_endpoints = ["devops@example.com"]
+alarm_email_endpoints = ["your-email@example.com"]
 
 # -----------------------------------------------------------------------
-# Sensitive — set via environment variables:
-#   TF_VAR_cloudfront_origin_verify_secret
+# Sensitive — set via environment variables
 # -----------------------------------------------------------------------
+# export TF_VAR_cloudfront_origin_verify_secret="<same value as primary environment>"
