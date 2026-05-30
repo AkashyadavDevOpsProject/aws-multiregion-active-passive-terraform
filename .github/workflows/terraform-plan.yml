@@ -1,0 +1,221 @@
+name: Terraform Plan
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "environments/**"
+      - "modules/**"
+      - ".github/workflows/**"
+
+permissions:
+  id-token: write       # Required for OIDC token exchange
+  contents: read
+  pull-requests: write  # Allow commenting plan output on PR
+
+env:
+  TF_VERSION: "1.6.0"
+  AWS_REGION: "ap-south-1"
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Determine which environments changed to avoid unnecessary plans
+  # -----------------------------------------------------------------------
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      prod_primary: ${{ steps.filter.outputs.prod_primary }}
+      prod_dr: ${{ steps.filter.outputs.prod_dr }}
+      staging: ${{ steps.filter.outputs.staging }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            prod_primary:
+              - 'environments/production/primary/**'
+              - 'modules/**'
+            prod_dr:
+              - 'environments/production/dr/**'
+              - 'modules/**'
+            staging:
+              - 'environments/staging/**'
+              - 'modules/**'
+
+  # -----------------------------------------------------------------------
+  # Plan — Staging
+  # -----------------------------------------------------------------------
+  plan-staging:
+    needs: changes
+    if: needs.changes.outputs.staging == 'true'
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_STAGING }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-TF-Plan-Staging
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: environments/staging
+        run: terraform init
+
+      - name: Terraform Validate
+        working-directory: environments/staging
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: environments/staging
+        env:
+          TF_VAR_cloudfront_origin_verify_secret: ${{ secrets.CLOUDFRONT_ORIGIN_VERIFY_SECRET }}
+          TF_VAR_route53_zone_id: ${{ secrets.ROUTE53_ZONE_ID }}
+        run: |
+          terraform plan -no-color -out=tfplan 2>&1 | tee plan_output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+
+      - name: Comment plan on PR
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('environments/staging/plan_output.txt', 'utf8');
+            const maxLen = 65000;
+            const truncated = plan.length > maxLen ? plan.substring(0, maxLen) + '\n... (truncated)' : plan;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Terraform Plan — staging\n\`\`\`\n${truncated}\n\`\`\``
+            });
+
+  # -----------------------------------------------------------------------
+  # Plan — Production Primary
+  # -----------------------------------------------------------------------
+  plan-prod-primary:
+    needs: changes
+    if: needs.changes.outputs.prod_primary == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_PROD }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-TF-Plan-Prod-Primary
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: environments/production/primary
+        run: terraform init
+
+      - name: Terraform Validate
+        working-directory: environments/production/primary
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: environments/production/primary
+        env:
+          TF_VAR_cloudfront_origin_verify_secret: ${{ secrets.CLOUDFRONT_ORIGIN_VERIFY_SECRET }}
+          TF_VAR_dr_nlb_dns_name: ${{ secrets.DR_NLB_DNS_NAME }}
+          TF_VAR_dr_cloudfront_domain_name: ${{ secrets.DR_CLOUDFRONT_DOMAIN_NAME }}
+        run: |
+          terraform plan -no-color -out=tfplan 2>&1 | tee plan_output.txt
+
+      - name: Comment plan on PR
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('environments/production/primary/plan_output.txt', 'utf8');
+            const maxLen = 65000;
+            const truncated = plan.length > maxLen ? plan.substring(0, maxLen) + '\n... (truncated)' : plan;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Terraform Plan — production/primary\n\`\`\`\n${truncated}\n\`\`\``
+            });
+
+  # -----------------------------------------------------------------------
+  # Plan — Production DR
+  # -----------------------------------------------------------------------
+  plan-prod-dr:
+    needs: changes
+    if: needs.changes.outputs.prod_dr == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_PROD }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-TF-Plan-Prod-DR
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: environments/production/dr
+        run: terraform init
+
+      - name: Terraform Validate
+        working-directory: environments/production/dr
+        run: terraform validate
+
+      - name: Terraform Plan
+        working-directory: environments/production/dr
+        env:
+          TF_VAR_cloudfront_origin_verify_secret: ${{ secrets.CLOUDFRONT_ORIGIN_VERIFY_SECRET }}
+          TF_VAR_route53_zone_id: ${{ secrets.ROUTE53_ZONE_ID }}
+          TF_VAR_eks_cluster_role_arn: ${{ secrets.EKS_CLUSTER_ROLE_ARN }}
+          TF_VAR_eks_node_group_role_arn: ${{ secrets.EKS_NODE_GROUP_ROLE_ARN }}
+          TF_VAR_devops_ec2_instance_profile_name: ${{ secrets.DEVOPS_EC2_INSTANCE_PROFILE_NAME }}
+          TF_VAR_s3_replication_role_arn: ${{ secrets.S3_REPLICATION_ROLE_ARN }}
+        run: |
+          terraform plan -no-color -out=tfplan 2>&1 | tee plan_output.txt
+
+      - name: Comment plan on PR
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('environments/production/dr/plan_output.txt', 'utf8');
+            const maxLen = 65000;
+            const truncated = plan.length > maxLen ? plan.substring(0, maxLen) + '\n... (truncated)' : plan;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Terraform Plan — production/dr\n\`\`\`\n${truncated}\n\`\`\``
+            });

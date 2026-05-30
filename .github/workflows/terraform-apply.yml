@@ -1,0 +1,201 @@
+name: Terraform Apply
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "environments/**"
+      - "modules/**"
+
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to apply (staging | prod-primary | prod-dr)"
+        required: true
+        type: choice
+        options:
+          - staging
+          - prod-primary
+          - prod-dr
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_VERSION: "1.6.0"
+  AWS_REGION: "ap-south-1"
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Determine changed environments (for push trigger)
+  # -----------------------------------------------------------------------
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      prod_primary: ${{ steps.filter.outputs.prod_primary }}
+      prod_dr: ${{ steps.filter.outputs.prod_dr }}
+      staging: ${{ steps.filter.outputs.staging }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            prod_primary:
+              - 'environments/production/primary/**'
+              - 'modules/**'
+            prod_dr:
+              - 'environments/production/dr/**'
+              - 'modules/**'
+            staging:
+              - 'environments/staging/**'
+              - 'modules/**'
+
+  # -----------------------------------------------------------------------
+  # Apply — Staging
+  # Staging applies automatically on push to main; no manual approval gate
+  # -----------------------------------------------------------------------
+  apply-staging:
+    needs: changes
+    if: |
+      (github.event_name == 'push' && needs.changes.outputs.staging == 'true') ||
+      (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging')
+    runs-on: ubuntu-latest
+    environment: staging
+    concurrency:
+      group: terraform-staging
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_STAGING }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-TF-Apply-Staging
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: environments/staging
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: environments/staging
+        env:
+          TF_VAR_cloudfront_origin_verify_secret: ${{ secrets.CLOUDFRONT_ORIGIN_VERIFY_SECRET }}
+          TF_VAR_route53_zone_id: ${{ secrets.ROUTE53_ZONE_ID }}
+        run: terraform apply -auto-approve
+
+  # -----------------------------------------------------------------------
+  # Apply — Production Primary
+  # Requires manual approval via GitHub Environment protection rules
+  # -----------------------------------------------------------------------
+  apply-prod-primary:
+    needs: changes
+    if: |
+      (github.event_name == 'push' && needs.changes.outputs.prod_primary == 'true') ||
+      (github.event_name == 'workflow_dispatch' && inputs.environment == 'prod-primary')
+    runs-on: ubuntu-latest
+    environment: production    # GitHub Environment with required reviewers configured
+    concurrency:
+      group: terraform-prod-primary
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_PROD }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-TF-Apply-Prod-Primary
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: environments/production/primary
+        run: terraform init
+
+      - name: Terraform Plan (pre-apply verification)
+        working-directory: environments/production/primary
+        env:
+          TF_VAR_cloudfront_origin_verify_secret: ${{ secrets.CLOUDFRONT_ORIGIN_VERIFY_SECRET }}
+          TF_VAR_dr_nlb_dns_name: ${{ secrets.DR_NLB_DNS_NAME }}
+          TF_VAR_dr_cloudfront_domain_name: ${{ secrets.DR_CLOUDFRONT_DOMAIN_NAME }}
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: environments/production/primary
+        env:
+          TF_VAR_cloudfront_origin_verify_secret: ${{ secrets.CLOUDFRONT_ORIGIN_VERIFY_SECRET }}
+          TF_VAR_dr_nlb_dns_name: ${{ secrets.DR_NLB_DNS_NAME }}
+          TF_VAR_dr_cloudfront_domain_name: ${{ secrets.DR_CLOUDFRONT_DOMAIN_NAME }}
+        run: terraform apply -auto-approve tfplan
+
+  # -----------------------------------------------------------------------
+  # Apply — Production DR
+  # Requires manual approval via GitHub Environment protection rules
+  # -----------------------------------------------------------------------
+  apply-prod-dr:
+    needs: changes
+    if: |
+      (github.event_name == 'push' && needs.changes.outputs.prod_dr == 'true') ||
+      (github.event_name == 'workflow_dispatch' && inputs.environment == 'prod-dr')
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: terraform-prod-dr
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_PROD }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-TF-Apply-Prod-DR
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: environments/production/dr
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: environments/production/dr
+        env:
+          TF_VAR_cloudfront_origin_verify_secret: ${{ secrets.CLOUDFRONT_ORIGIN_VERIFY_SECRET }}
+          TF_VAR_route53_zone_id: ${{ secrets.ROUTE53_ZONE_ID }}
+          TF_VAR_eks_cluster_role_arn: ${{ secrets.EKS_CLUSTER_ROLE_ARN }}
+          TF_VAR_eks_node_group_role_arn: ${{ secrets.EKS_NODE_GROUP_ROLE_ARN }}
+          TF_VAR_devops_ec2_instance_profile_name: ${{ secrets.DEVOPS_EC2_INSTANCE_PROFILE_NAME }}
+          TF_VAR_s3_replication_role_arn: ${{ secrets.S3_REPLICATION_ROLE_ARN }}
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: environments/production/dr
+        env:
+          TF_VAR_cloudfront_origin_verify_secret: ${{ secrets.CLOUDFRONT_ORIGIN_VERIFY_SECRET }}
+          TF_VAR_route53_zone_id: ${{ secrets.ROUTE53_ZONE_ID }}
+          TF_VAR_eks_cluster_role_arn: ${{ secrets.EKS_CLUSTER_ROLE_ARN }}
+          TF_VAR_eks_node_group_role_arn: ${{ secrets.EKS_NODE_GROUP_ROLE_ARN }}
+          TF_VAR_devops_ec2_instance_profile_name: ${{ secrets.DEVOPS_EC2_INSTANCE_PROFILE_NAME }}
+          TF_VAR_s3_replication_role_arn: ${{ secrets.S3_REPLICATION_ROLE_ARN }}
+        run: terraform apply -auto-approve tfplan
